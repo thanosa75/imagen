@@ -1,0 +1,40 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./uploads:/usr/src/app/uploads
+      - ./results:/usr/src/app/results
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    restart: always
+    command: node src/workers/jobWorker.js
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./uploads:/usr/src/app/uploads
+      - ./results:/usr/src/app/results
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:
