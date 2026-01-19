@@ -1,0 +1,178 @@
+{
+  "prompts": [
+    {
+      "id": "describe_image",
+      "name": "Image Description",
+      "description": "Provides a detailed description of an image",
+      "template": "Analyze this image and provide a {{detail_level}} description. Focus on {{focus_area}}.",
+      "supportedOutcomes": ["text"],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "detail_level": "detailed",
+        "focus_area": "all visual elements, composition, colors, and subjects"
+      },
+      "examples": [
+        {
+          "variables": {
+            "detail_level": "brief",
+            "focus_area": "the main subject only"
+          },
+          "description": "Quick description of the main subject"
+        }
+      ]
+    },
+    {
+      "id": "enhance_image",
+      "name": "Create an updated image with details from the existing image",
+      "description": "Provides an updated image, that is using items of the original",
+      "template": "Focus on {{focus_area}}. Produce an {{type_of_shot}} shot of an AI-generated model wearing runway makeup, set in a dreamy New York pastel studio environment, with a artistic mood. Make sure the photo is having {{focus_area}} prominent and the AI model's face partially visible due to the angle of the shot. Final as a 9:16 image.",
+      "supportedOutcomes": ["image"],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "type_of_shot": "avant-garde, high-fashion",
+        "focus_area": "the main item of the attached image"
+      },
+      "examples": [
+        {
+          "variables": {
+            "type_of_shot": "avant-garde, high-fashion",
+            "focus_area": "the main item of the attached image"
+          },
+          "description": "Create an updated image with details from the existing image"
+        }
+      ]
+    },
+    {
+      "id": "ocr",
+      "name": "Text Extraction (OCR)",
+      "description": "Extracts all visible text from an image",
+      "template": "Extract all text visible in this image. Format the output as {{format}}. Preserve the {{layout}} of the text.",
+      "supportedOutcomes": ["text"],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "format": "plain text",
+        "layout": "original layout and structure"
+      },
+      "examples": [
+        {
+          "variables": {
+            "format": "JSON with text and coordinates",
+            "layout": "line-by-line structure"
+          },
+          "description": "Extract text with position information"
+        }
+      ]
+    },
+    {
+      "id": "extract_colors",
+      "name": "Color Extraction",
+      "description": "Identifies and extracts dominant colors from an image",
+      "template": "Analyze this image and identify the {{count}} most dominant colors. Provide the colors as {{format}} and include {{additional_info}}.",
+      "supportedOutcomes": ["text"],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "count": "5",
+        "format": "hex color codes with color names",
+        "additional_info": "the approximate percentage of each color in the image"
+      },
+      "examples": [
+        {
+          "variables": {
+            "count": "3",
+            "format": "RGB values",
+            "additional_info": "color mood and palette description"
+          },
+          "description": "Extract top 3 colors with mood analysis"
+        }
+      ]
+    },
+    {
+      "id": "object_detection",
+      "name": "Object Detection",
+      "description": "Detects and identifies objects in an image",
+      "template": "Identify all {{object_type}} in this image. For each object, provide {{details}}. {{confidence_instruction}}",
+      "supportedOutcomes": ["text"],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "object_type": "objects and items",
+        "details": "the name, approximate location, and size",
+        "confidence_instruction": "Include your confidence level for each detection."
+      },
+      "examples": [
+        {
+          "variables": {
+            "object_type": "people and faces",
+            "details": "count, positions, and any visible attributes",
+            "confidence_instruction": "Only include detections with high confidence."
+          },
+          "description": "Detect people and faces with high confidence"
+        }
+      ]
+    },
+    {
+      "id": "image_classification",
+      "name": "Image Classification",
+      "description": "Classifies an image into categories",
+      "template": "Classify this image into relevant categories. Consider {{aspects}} and provide {{output_format}}.",
+      "supportedOutcomes": ["text"],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "aspects": "subject matter, style, mood, and context",
+        "output_format": "a list of categories with confidence scores"
+      },
+      "examples": [
+        {
+          "variables": {
+            "aspects": "artistic style and genre only",
+            "output_format": "the top 3 most relevant categories"
+          },
+          "description": "Classify by artistic style"
+        }
+      ]
+    },
+    {
+      "id": "scene_understanding",
+      "name": "Scene Understanding",
+      "description": "Provides comprehensive understanding of a scene",
+      "template": "Analyze this scene and describe: {{elements}}. Provide insights about {{context}}.",
+      "supportedOutcomes": ["text"],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "elements": "the setting, objects, people, activities, and atmosphere",
+        "context": "the likely context, time of day, location type, and any notable details"
+      },
+      "examples": [
+        {
+          "variables": {
+            "elements": "the environment and weather conditions",
+            "context": "outdoor/indoor setting and time of day"
+          },
+          "description": "Focus on environmental context"
+        }
+      ]
+    },
+    {
+      "id": "accessibility_description",
+      "name": "Accessibility Description",
+      "description": "Creates detailed alt-text descriptions for accessibility",
+      "template": "Create an accessibility-friendly description of this image. Include {{elements}} in a {{style}} manner. Maximum length: {{max_length}}.",
+      "supportedOutcomes": ["text"],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "elements": "all important visual information, text, and context",
+        "style": "clear, concise, and descriptive",
+        "max_length": "250 words"
+      },
+      "examples": [
+        {
+          "variables": {
+            "elements": "essential information only",
+            "style": "brief and factual",
+            "max_length": "100 words"
+          },
+          "description": "Short alt-text for web accessibility"
+        }
+      ]
+    }
+  ]
+}
