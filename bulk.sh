@@ -33,7 +33,7 @@ fi
 
 # Define Variations
 VAR1='{"type_of_shot":"clean, minimalist, product-focused", "focus_area":"the main item of the attached image in sharp detail"}'
-VAR2='{"type_of_shot":"professional studio, crisp, well-lit", "focus_area":"the main item of the attached image with clean background"}'
+VAR2='{"type_of_shot":"professional studio, crisp, well-lit", "focus_area":"the main item of the attached image with clean slightly vignette studio background"}'
 VAR3='{"type_of_shot":"editorial, refined, elegant", "focus_area":"the main item of the attached image as the hero element"}'
 
 # Function to handle individual variation processing
@@ -44,7 +44,7 @@ process_variation() {
     
     local filename=$(basename -- "$img_path")
     local filename_no_ext="${filename%.*}"
-    local output_file="${PROCESSED_DIR}/${filename_no_ext}_var${var_num}.png"
+    local output_file="${PROCESSED_DIR}/${filename_no_ext}_var${var_num}.jpeg"
 
     echo "  [Variation $var_num] Submitting job..."
 
@@ -58,7 +58,7 @@ process_variation() {
       -F "variables=$var_json")
 
     # 4. Job Tracking
-    jobId=$(echo "$response" | jq -r '.id')
+    jobId=$(echo "$response" | jq -r '.jobId')
 
     if [ "$jobId" == "null" ] || [ -z "$jobId" ]; then
         echo "    Error: Failed to get Job ID. API Response: $response"
