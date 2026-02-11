@@ -1,28 +1,18 @@
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { z } = require('zod');
+
 const jobRepository = require('../repositories/jobRepository');
 const promptService = require('../services/promptService');
 const { enqueueJob } = require('../services/queueService');
-
-// Validation schema for job submission
-const jobSubmissionSchema = z.object({
-  promptId: z.string().min(1, 'promptId is required'),
-  variables: z.record(z.any()).optional().default({}),
-  expectedOutcome: z.enum(['text', 'image'], {
-    errorMap: () => ({ message: "expectedOutcome must be 'text' or 'image'" })
-  })
-});
 
 /**
  * Handle POST /jobs - Submit a new image processing job
  */
 const submitJob = async (req, res, next) => {
   try {
-    // 1. Validate basic fields with Zod
-    // Note: If using multipart/form-data, Multer populates req.body
-    const validatedData = jobSubmissionSchema.parse(req.body);
+    // Note: Validation is now handled by validateJobSubmission middleware
+    const data = req.body;
 
     // 2. Check for image
     if (!req.file) {
@@ -37,9 +27,9 @@ const submitJob = async (req, res, next) => {
     // 3. Create job in Redis
     const jobData = {
       jobId,
-      promptId: validatedData.promptId,
-      expectedOutcome: validatedData.expectedOutcome,
-      variables: validatedData.variables,
+      promptId: data.promptId,
+      expectedOutcome: data.expectedOutcome,
+      variables: data.variables,
       imageMimeType: req.file.mimetype,
       // We could store the path to the original image if needed for processing
       imagePath: req.file.path
@@ -194,6 +184,5 @@ module.exports = {
   submitJob,
   getJobStatus,
   getJobImage,
-  listPrompts,
-  jobSubmissionSchema // Exported for validator middleware if used separately
+  listPrompts
 };

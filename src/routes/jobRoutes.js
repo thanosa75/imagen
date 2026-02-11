@@ -3,7 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const jobController = require('../controllers/jobController');
-const { validate } = require('../middleware/validator');
+const { validateJobSubmission } = require('../middleware/validator');
 
 const router = express.Router();
 
@@ -110,7 +110,7 @@ router.get(
 router.post(
   '/',
   upload.single('image'),
-  validate(jobController.jobSubmissionSchema),
+  validateJobSubmission,
   jobController.submitJob
 );
 
