@@ -1,17 +1,22 @@
 FROM node:25-alpine
 
-# Create app directory
+# Create non-root user and directories
+RUN addgroup -g 1001 -S imagen && \
+    adduser -S imagen -u 1001 -G imagen && \
+    mkdir -p /usr/src/app/uploads /usr/src/app/results && \
+    chown -R imagen:imagen /usr/src/app
+
 WORKDIR /usr/src/app
 
-# Install dependencies first for better caching
+# Install dependencies as root for layer caching, then fix ownership
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev && chown -R imagen:imagen /usr/src/app
 
 # Copy app source
-COPY . .
+COPY --chown=imagen:imagen . .
 
-# Create directories for persistent data
-RUN mkdir -p uploads results
+# Switch to non-root user
+USER imagen
 
-# Default command (will be overridden in docker-compose for the worker)
+# Default command (overridden in docker-compose for worker)
 CMD ["npm", "start"]

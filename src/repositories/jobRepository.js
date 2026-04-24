@@ -4,22 +4,14 @@ const logger = require('../utils/logger');
 const JOB_KEY_PREFIX = 'job:';
 const JOB_STATUS_PREFIX = 'jobs:status:';
 const ACTIVE_JOBS_KEY = 'jobs:active';
-const DEFAULT_TTL = parseInt(process.env.JOB_TTL || '86400', 10); // 24 hours
+const JOB_INDEX_KEY = 'jobs:index'; // ZSET for TTL-aware indexing (HIGH-7)
+const DEFAULT_TTL = parseInt(process.env.JOB_TTL || '86400', 10);
 
-/**
- * Create a new job in Redis
- * @param {Object} jobData - Job data
- * @param {string} jobData.jobId - Unique job identifier
- * @param {string} jobData.promptId - Prompt identifier
- * @param {string} jobData.expectedOutcome - Expected outcome type (text|image)
- * @param {Object} [jobData.variables] - Prompt variables
- * @param {string} [jobData.imageMimeType] - Image MIME type
- * @returns {Promise<Object>} Created job data
- */
 async function createJob(jobData) {
   const client = getRedisClient();
   const jobKey = `${JOB_KEY_PREFIX}${jobData.jobId}`;
   const now = new Date().toISOString();
+  const nowMs = Date.now();
 
   const jobRecord = {
     jobId: jobData.jobId,
@@ -30,7 +22,6 @@ async function createJob(jobData) {
     updatedAt: now,
   };
 
-  // Add optional fields
   if (jobData.variables) {
     jobRecord.variables = JSON.stringify(jobData.variables);
   }
@@ -42,14 +33,13 @@ async function createJob(jobData) {
   }
 
   try {
-    // Store job as hash
-    await client.hSet(jobKey, jobRecord);
-
-    // Add to status index
-    await client.sAdd(`${JOB_STATUS_PREFIX}pending`, jobData.jobId);
-
-    // Set TTL
-    await client.expire(jobKey, DEFAULT_TTL);
+    // Atomic transaction: store job + index it + add to pending set (CRIT-6)
+    const multi = client.multi();
+    multi.hSet(jobKey, jobRecord);
+    multi.sAdd(`${JOB_STATUS_PREFIX}pending`, jobData.jobId);
+    multi.zAdd(JOB_INDEX_KEY, { score: nowMs, value: jobData.jobId });
+    multi.expire(jobKey, DEFAULT_TTL);
+    await multi.exec();
 
     logger.info(`Job created: ${jobData.jobId}`);
     return jobRecord;
@@ -59,37 +49,24 @@ async function createJob(jobData) {
   }
 }
 
-/**
- * Get job by ID
- * @param {string} jobId - Job identifier
- * @returns {Promise<Object|null>} Job data or null if not found
- */
 async function getJobById(jobId) {
   const client = getRedisClient();
   const jobKey = `${JOB_KEY_PREFIX}${jobId}`;
 
   try {
     const jobData = await client.hGetAll(jobKey);
-
     if (!jobData || Object.keys(jobData).length === 0) {
       logger.debug(`Job not found: ${jobId}`);
       return null;
     }
-
-    // Parse JSON fields
     if (jobData.variables) {
-      try {
-        jobData.variables = JSON.parse(jobData.variables);
-      } catch (e) {
+      try { jobData.variables = JSON.parse(jobData.variables); } catch (e) {
         logger.warn(`Failed to parse variables for job ${jobId}`);
       }
     }
-
-    // Convert numeric fields
     if (jobData.processingTime) {
       jobData.processingTime = parseInt(jobData.processingTime, 10);
     }
-
     return jobData;
   } catch (error) {
     logger.error(`Error getting job ${jobId}:`, error);
@@ -97,56 +74,40 @@ async function getJobById(jobId) {
   }
 }
 
-/**
- * Update job status
- * @param {string} jobId - Job identifier
- * @param {string} newStatus - New status (pending|processing|completed|failed)
- * @param {string} [oldStatus] - Old status for index update
- * @returns {Promise<void>}
- */
 async function updateJobStatus(jobId, newStatus, oldStatus = null) {
   const client = getRedisClient();
   const jobKey = `${JOB_KEY_PREFIX}${jobId}`;
   const now = new Date().toISOString();
 
   try {
-    const updates = {
-      status: newStatus,
-      updatedAt: now,
-    };
-
-    // Add completedAt timestamp for completed/failed jobs
+    const updates = { status: newStatus, updatedAt: now };
     if (newStatus === 'completed' || newStatus === 'failed') {
       updates.completedAt = now;
     }
 
-    await client.hSet(jobKey, updates);
+    // CRIT-6 fix: use MULTI/EXEC for atomic status transitions
+    const multi = client.multi();
+    multi.hSet(jobKey, updates);
 
-    // Update status index
     if (oldStatus) {
-      await client.sMove(
-        `${JOB_STATUS_PREFIX}${oldStatus}`,
-        `${JOB_STATUS_PREFIX}${newStatus}`,
-        jobId
-      );
+      multi.sMove(`${JOB_STATUS_PREFIX}${oldStatus}`, `${JOB_STATUS_PREFIX}${newStatus}`, jobId);
     } else {
-      // If oldStatus not provided, try to remove from all possible statuses
       const statuses = ['pending', 'processing', 'completed', 'failed'];
       for (const status of statuses) {
         if (status !== newStatus) {
-          await client.sRem(`${JOB_STATUS_PREFIX}${status}`, jobId);
+          multi.sRem(`${JOB_STATUS_PREFIX}${status}`, jobId);
         }
       }
-      await client.sAdd(`${JOB_STATUS_PREFIX}${newStatus}`, jobId);
+      multi.sAdd(`${JOB_STATUS_PREFIX}${newStatus}`, jobId);
     }
 
-    // Manage active jobs set
     if (newStatus === 'processing') {
-      await client.sAdd(ACTIVE_JOBS_KEY, jobId);
+      multi.sAdd(ACTIVE_JOBS_KEY, jobId);
     } else if (newStatus === 'completed' || newStatus === 'failed') {
-      await client.sRem(ACTIVE_JOBS_KEY, jobId);
+      multi.sRem(ACTIVE_JOBS_KEY, jobId);
     }
 
+    await multi.exec();
     logger.info(`Job ${jobId} status updated: ${oldStatus || '?'} -> ${newStatus}`);
   } catch (error) {
     logger.error(`Error updating job status ${jobId}:`, error);
@@ -154,41 +115,17 @@ async function updateJobStatus(jobId, newStatus, oldStatus = null) {
   }
 }
 
-/**
- * Update job with results
- * @param {string} jobId - Job identifier
- * @param {Object} results - Job results
- * @param {string} [results.resultText] - Text result
- * @param {string} [results.resultImagePath] - Image result path
- * @param {number} [results.processingTime] - Processing time in milliseconds
- * @param {string} [results.promptUsed] - Resolved prompt text
- * @param {string} [results.modelVersion] - Model version used
- * @returns {Promise<void>}
- */
 async function updateJobResults(jobId, results) {
   const client = getRedisClient();
   const jobKey = `${JOB_KEY_PREFIX}${jobId}`;
 
   try {
-    const updates = {
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (results.resultText !== undefined) {
-      updates.resultText = results.resultText;
-    }
-    if (results.resultImagePath !== undefined) {
-      updates.resultImagePath = results.resultImagePath;
-    }
-    if (results.processingTime !== undefined) {
-      updates.processingTime = results.processingTime.toString();
-    }
-    if (results.promptUsed !== undefined) {
-      updates.promptUsed = results.promptUsed;
-    }
-    if (results.modelVersion !== undefined) {
-      updates.modelVersion = results.modelVersion;
-    }
+    const updates = { updatedAt: new Date().toISOString() };
+    if (results.resultText !== undefined) updates.resultText = results.resultText;
+    if (results.resultImagePath !== undefined) updates.resultImagePath = results.resultImagePath;
+    if (results.processingTime !== undefined) updates.processingTime = results.processingTime.toString();
+    if (results.promptUsed !== undefined) updates.promptUsed = results.promptUsed;
+    if (results.modelVersion !== undefined) updates.modelVersion = results.modelVersion;
 
     await client.hSet(jobKey, updates);
     logger.info(`Job ${jobId} results updated`);
@@ -198,25 +135,16 @@ async function updateJobResults(jobId, results) {
   }
 }
 
-/**
- * Update job with error information
- * @param {string} jobId - Job identifier
- * @param {string} errorMessage - Error message
- * @param {string} [errorCode] - Error code
- * @returns {Promise<void>}
- */
 async function updateJobError(jobId, errorMessage, errorCode = 'PROCESSING_ERROR') {
   const client = getRedisClient();
   const jobKey = `${JOB_KEY_PREFIX}${jobId}`;
 
   try {
-    const updates = {
+    await client.hSet(jobKey, {
       errorMessage,
       errorCode,
       updatedAt: new Date().toISOString(),
-    };
-
-    await client.hSet(jobKey, updates);
+    });
     logger.info(`Job ${jobId} error updated: ${errorCode}`);
   } catch (error) {
     logger.error(`Error updating job error ${jobId}:`, error);
@@ -224,87 +152,85 @@ async function updateJobError(jobId, errorMessage, errorCode = 'PROCESSING_ERROR
   }
 }
 
-/**
- * Get jobs by status
- * @param {string} status - Job status
- * @returns {Promise<string[]>} Array of job IDs
- */
 async function getJobsByStatus(status) {
   const client = getRedisClient();
-
   try {
-    const jobIds = await client.sMembers(`${JOB_STATUS_PREFIX}${status}`);
-    return jobIds;
+    return await client.sMembers(`${JOB_STATUS_PREFIX}${status}`);
   } catch (error) {
     logger.error(`Error getting jobs by status ${status}:`, error);
     throw error;
   }
 }
 
-/**
- * Get active jobs
- * @returns {Promise<string[]>} Array of active job IDs
- */
 async function getActiveJobs() {
   const client = getRedisClient();
-
   try {
-    const jobIds = await client.sMembers(ACTIVE_JOBS_KEY);
-    return jobIds;
+    return await client.sMembers(ACTIVE_JOBS_KEY);
   } catch (error) {
     logger.error('Error getting active jobs:', error);
     throw error;
   }
 }
 
-/**
- * Delete a job
- * @param {string} jobId - Job identifier
- * @returns {Promise<boolean>} True if deleted, false if not found
- */
 async function deleteJob(jobId) {
   const client = getRedisClient();
   const jobKey = `${JOB_KEY_PREFIX}${jobId}`;
 
   try {
-    // Get job to determine status
     const job = await getJobById(jobId);
-    if (!job) {
-      return false;
-    }
+    if (!job) return false;
 
-    // Remove from status index
-    await client.sRem(`${JOB_STATUS_PREFIX}${job.status}`, jobId);
-
-    // Remove from active jobs if present
-    await client.sRem(ACTIVE_JOBS_KEY, jobId);
-
-    // Delete job hash
-    const deleted = await client.del(jobKey);
+    const multi = client.multi();
+    multi.sRem(`${JOB_STATUS_PREFIX}${job.status}`, jobId);
+    multi.sRem(ACTIVE_JOBS_KEY, jobId);
+    multi.zRem(JOB_INDEX_KEY, jobId);
+    multi.del(jobKey);
+    await multi.exec();
 
     logger.info(`Job ${jobId} deleted`);
-    return deleted > 0;
+    return true;
   } catch (error) {
     logger.error(`Error deleting job ${jobId}:`, error);
     throw error;
   }
 }
 
-/**
- * Check if job exists
- * @param {string} jobId - Job identifier
- * @returns {Promise<boolean>} True if exists
- */
 async function jobExists(jobId) {
   const client = getRedisClient();
-  const jobKey = `${JOB_KEY_PREFIX}${jobId}`;
-
   try {
-    const exists = await client.exists(jobKey);
-    return exists === 1;
+    return (await client.exists(`${JOB_KEY_PREFIX}${jobId}`)) === 1;
   } catch (error) {
     logger.error(`Error checking job existence ${jobId}:`, error);
     throw error;
+  }
+}
+
+// HIGH-7 fix: clean up ghost job IDs from status sets when the job hash has expired
+async function cleanupGhostJobs(maxAgeHours = 48) {
+  const client = getRedisClient();
+  const cutoff = Date.now() - (maxAgeHours * 60 * 60 * 1000);
+  let cleaned = 0;
+
+  try {
+    const oldJobIds = await client.zRangeByScore(JOB_INDEX_KEY, 0, cutoff);
+    for (const jobId of oldJobIds) {
+      const exists = await jobExists(jobId);
+      if (!exists) {
+        const multi = client.multi();
+        ['pending', 'processing', 'completed', 'failed'].forEach(st => {
+          multi.sRem(`${JOB_STATUS_PREFIX}${st}`, jobId);
+        });
+        multi.sRem(ACTIVE_JOBS_KEY, jobId);
+        multi.zRem(JOB_INDEX_KEY, jobId);
+        await multi.exec();
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      logger.info(`Cleaned up ${cleaned} ghost job entries from status sets`);
+    }
+  } catch (error) {
+    logger.error('Error during ghost job cleanup:', error);
   }
 }
 
@@ -318,4 +244,5 @@ module.exports = {
   getActiveJobs,
   deleteJob,
   jobExists,
+  cleanupGhostJobs,
 };

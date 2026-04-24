@@ -5,16 +5,15 @@ const { v4: uuidv4 } = require('uuid');
 const jobRepository = require('../repositories/jobRepository');
 const promptService = require('../services/promptService');
 const { enqueueJob } = require('../services/queueService');
+const logger = require('../utils/logger');
 
 /**
  * Handle POST /jobs - Submit a new image processing job
  */
 const submitJob = async (req, res, next) => {
-  try {
-    // Note: Validation is now handled by validateJobSubmission middleware
-    const data = req.body;
+  let createdJob = null;
 
-    // 2. Check for image
+  try {
     if (!req.file) {
       const error = new Error('Image file is required');
       error.statusCode = 400;
@@ -22,26 +21,32 @@ const submitJob = async (req, res, next) => {
       throw error;
     }
 
+    // Validate promptId exists BEFORE creating any persistent state (bonus from MED-5)
+    const prompt = await promptService.getPromptById(req.body.promptId);
+    if (!prompt) {
+      const error = new Error(`Prompt '${req.body.promptId}' not found`);
+      error.statusCode = 400;
+      error.code = 'INVALID_PROMPT';
+      throw error;
+    }
+
     const jobId = uuidv4();
-    
-    // 3. Create job in Redis
+
     const jobData = {
       jobId,
-      promptId: data.promptId,
-      expectedOutcome: data.expectedOutcome,
-      variables: data.variables,
+      promptId: req.body.promptId,
+      expectedOutcome: req.body.expectedOutcome,
+      variables: req.body.variables,
       imageMimeType: req.file.mimetype,
-      // We could store the path to the original image if needed for processing
       imagePath: req.file.path
     };
 
-    const createdJob = await jobRepository.createJob(jobData);
+    createdJob = await jobRepository.createJob(jobData);
 
-    // 4. Enqueue the job for processing
+    // Enqueue after record is durable
     await enqueueJob(jobId);
 
-    // 5. Return response
-    req.log.info(`Job created successfully`, { jobId: createdJob.jobId });
+    req.log.info('Job created successfully', { jobId: createdJob.jobId });
     res.status(201).json({
       jobId: createdJob.jobId,
       status: createdJob.status,
@@ -49,9 +54,17 @@ const submitJob = async (req, res, next) => {
     });
 
   } catch (error) {
-    // If validation fails or something else goes wrong, and we uploaded a file, clean it up
+    // CRIT-5 fix: clean up BOTH file and stale job record
     if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+      try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
+    }
+    if (createdJob && createdJob.jobId) {
+      try {
+        await jobRepository.deleteJob(createdJob.jobId);
+        logger.info(`Rolled back stale job record ${createdJob.jobId}`);
+      } catch (cleanupErr) {
+        logger.error(`Failed to clean up stale job ${createdJob.jobId}:`, cleanupErr);
+      }
     }
     next(error);
   }
@@ -72,7 +85,6 @@ const getJobStatus = async (req, res, next) => {
       throw error;
     }
 
-    // Format response based on design.md
     const response = {
       jobId: job.jobId,
       status: job.status,
@@ -82,7 +94,7 @@ const getJobStatus = async (req, res, next) => {
       updatedAt: job.updatedAt,
       completedAt: job.completedAt || null,
     };
-    
+
     req.log.debug(`Retrieved status for job ${id}: ${job.status}`);
 
     if (job.status === 'completed' && job.expectedOutcome === 'text') {
@@ -111,7 +123,7 @@ const getJobStatus = async (req, res, next) => {
 };
 
 /**
- * Handle GET /jobs/:id/image - Get image result
+ * Handle GET /jobs/:id/result-image - Get image result
  */
 const getJobImage = async (req, res, next) => {
   try {
@@ -134,7 +146,9 @@ const getJobImage = async (req, res, next) => {
 
     if (job.status !== 'completed') {
       const status = job.status === 'failed' ? 404 : 409;
-      const error = new Error(job.status === 'failed' ? 'Job failed, no image available' : 'Job not yet completed');
+      const error = new Error(
+        job.status === 'failed' ? 'Job failed, no image available' : 'Job not yet completed'
+      );
       error.statusCode = status;
       error.code = job.status === 'failed' ? 'JOB_FAILED' : 'JOB_NOT_COMPLETED';
       throw error;
@@ -147,21 +161,30 @@ const getJobImage = async (req, res, next) => {
       throw error;
     }
 
-    // Determine mime type from extension or stored mime type
     const mimeType = job.imageMimeType || 'image/jpeg';
-    
+
     req.log.info(`Serving result image for job ${id}`);
     res.setHeader('Content-Type', mimeType);
-    const fileStream = fs.createReadStream(job.resultImagePath);
-    fileStream.pipe(res);
 
+    // HIGH-4 fix: attach error handler to stream
+    const fileStream = fs.createReadStream(job.resultImagePath);
+    fileStream.on('error', (err) => {
+      logger.error(`Stream error serving image for job ${id}:`, err);
+      // If headers not sent, respond with error; otherwise just destroy stream
+      if (!res.headersSent) {
+        res.status(500).json({ error: { code: 'STREAM_ERROR', message: 'Failed to stream image' } });
+      }
+      fileStream.destroy();
+    });
+
+    fileStream.pipe(res);
   } catch (error) {
     next(error);
   }
 };
 
 /**
- * Handle GET /prompts - List all available prompts
+ * Handle GET /prompts/show - List all available prompts
  */
 const listPrompts = async (req, res, next) => {
   try {

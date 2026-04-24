@@ -2,20 +2,85 @@ const request = require('supertest');
 const fs = require('fs');
 const path = require('path');
 
+// Set test env vars BEFORE importing any app modules
+process.env.API_KEY = 'test-api-key';
+process.env.GEMINI_API_KEY = 'test-gemini-key';
+
 // Mock Redis configuration BEFORE importing other modules
 const mockRedisClient = {
   store: {}, // HASH storage: key -> object
   sets: {},  // SET storage: key -> Set
-  
+  lists: {}, // LIST storage: key -> Array
+  zsets: {}, // ZSET storage: key -> Array of {score, value}
+
   connect: jest.fn().mockResolvedValue(),
   on: jest.fn(),
   quit: jest.fn().mockResolvedValue(),
   isOpen: true,
 
+  multi: jest.fn(function() {
+    const commands = [];
+    const chain = {
+      hSet: jest.fn(function(...args) { commands.push(['hSet', ...args]); return this; }),
+      sAdd: jest.fn(function(...args) { commands.push(['sAdd', ...args]); return this; }),
+      sRem: jest.fn(function(...args) { commands.push(['sRem', ...args]); return this; }),
+      sMove: jest.fn(function(...args) { commands.push(['sMove', ...args]); return this; }),
+      zAdd: jest.fn(function(...args) { commands.push(['zAdd', ...args]); return this; }),
+      zRem: jest.fn(function(...args) { commands.push(['zRem', ...args]); return this; }),
+      zRangeByScore: jest.fn(function(...args) { commands.push(['zRangeByScore', ...args]); return this; }),
+      expire: jest.fn(function(...args) { commands.push(['expire', ...args]); return this; }),
+      del: jest.fn(function(...args) { commands.push(['del', ...args]); return this; }),
+      exec: jest.fn(async () => {
+        for (const cmd of commands) {
+          const [name, ...args] = cmd;
+          if (name === 'hSet') {
+            const [key, value] = args;
+            if (!mockRedisClient.store[key]) mockRedisClient.store[key] = {};
+            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+              Object.assign(mockRedisClient.store[key], value);
+            } else {
+              mockRedisClient.store[key][value] = args[2];
+            }
+          } else if (name === 'sAdd') {
+            const [key, member] = args;
+            if (!mockRedisClient.sets[key]) mockRedisClient.sets[key] = new Set();
+            mockRedisClient.sets[key].add(member);
+          } else if (name === 'sRem') {
+            const [key, member] = args;
+            if (mockRedisClient.sets[key]) mockRedisClient.sets[key].delete(member);
+          } else if (name === 'sMove') {
+            const [source, dest, member] = args;
+            if (mockRedisClient.sets[source]) mockRedisClient.sets[source].delete(member);
+            if (!mockRedisClient.sets[dest]) mockRedisClient.sets[dest] = new Set();
+            mockRedisClient.sets[dest].add(member);
+          } else if (name === 'zAdd') {
+            const [key, item] = args;
+            if (!mockRedisClient.zsets[key]) mockRedisClient.zsets[key] = [];
+            mockRedisClient.zsets[key].push(item);
+          } else if (name === 'zRem') {
+            const [key, member] = args;
+            if (mockRedisClient.zsets[key]) {
+              mockRedisClient.zsets[key] = mockRedisClient.zsets[key].filter(i => i.value !== member);
+            }
+          } else if (name === 'del') {
+            const [key] = args;
+            delete mockRedisClient.store[key];
+          }
+        }
+        return [];
+      }),
+    };
+    return chain;
+  }),
+
   hSet: jest.fn(async (key, value) => {
     if (!mockRedisClient.store[key]) mockRedisClient.store[key] = {};
-    Object.assign(mockRedisClient.store[key], value);
-    return Object.keys(value).length;
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      Object.assign(mockRedisClient.store[key], value);
+    } else {
+      mockRedisClient.store[key][value] = arguments[2];
+    }
+    return 1;
   }),
 
   hGetAll: jest.fn(async (key) => {
@@ -40,29 +105,44 @@ const mockRedisClient = {
     return Array.from(mockRedisClient.sets[key]);
   }),
 
+  sMove: jest.fn(async (source, destination, member) => {
+    if (mockRedisClient.sets[source]) mockRedisClient.sets[source].delete(member);
+    if (!mockRedisClient.sets[destination]) mockRedisClient.sets[destination] = new Set();
+    mockRedisClient.sets[destination].add(member);
+    return 1;
+  }),
+
   // Queue methods (lists)
   lPush: jest.fn(async (key, value) => {
-    return 1; // Return queue length
+    if (!mockRedisClient.lists[key]) mockRedisClient.lists[key] = [];
+    mockRedisClient.lists[key].unshift(value);
+    return mockRedisClient.lists[key].length;
   }),
 
   brPop: jest.fn(async (key, timeout) => {
-    return null; // Simulate empty or timeout
+    if (!mockRedisClient.lists[key] || mockRedisClient.lists[key].length === 0) return null;
+    const value = mockRedisClient.lists[key].pop();
+    return { key, element: value };
   }),
 
   rPop: jest.fn(async (key) => {
-    return null;
+    if (!mockRedisClient.lists[key] || mockRedisClient.lists[key].length === 0) return null;
+    return mockRedisClient.lists[key].pop();
   }),
 
   lLen: jest.fn(async (key) => {
-    return 0;
+    return mockRedisClient.lists[key]?.length || 0;
   }),
 
   lRange: jest.fn(async (key, start, end) => {
-    return [];
+    return mockRedisClient.lists[key] || [];
   }),
 
   lRem: jest.fn(async (key, count, element) => {
-    return 0;
+    if (!mockRedisClient.lists[key]) return 0;
+    const before = mockRedisClient.lists[key].length;
+    mockRedisClient.lists[key] = mockRedisClient.lists[key].filter(i => i !== element);
+    return before - mockRedisClient.lists[key].length;
   }),
 
   brPopLPush: jest.fn(async (source, dest, timeout) => {
@@ -70,7 +150,7 @@ const mockRedisClient = {
   }),
 
   expire: jest.fn().mockResolvedValue(true),
-  
+
   del: jest.fn(async (key) => {
     delete mockRedisClient.store[key];
     return 1;
@@ -80,13 +160,12 @@ const mockRedisClient = {
     return mockRedisClient.store[key] ? 1 : 0;
   }),
 
-  // For job status updates (sMove is used)
-  sMove: jest.fn(async (source, destination, member) => {
-    if (mockRedisClient.sets[source]) mockRedisClient.sets[source].delete(member);
-    if (!mockRedisClient.sets[destination]) mockRedisClient.sets[destination] = new Set();
-    mockRedisClient.sets[destination].add(member);
-    return 1;
-  })
+  zRangeByScore: jest.fn(async (key, min, max) => {
+    if (!mockRedisClient.zsets[key]) return [];
+    return mockRedisClient.zsets[key]
+      .filter(i => i.score >= min && i.score <= max)
+      .map(i => i.value);
+  }),
 };
 
 jest.mock('../src/config/redis', () => ({
@@ -114,7 +193,7 @@ describe('Job Flow Test', () => {
     // Create a dummy test image
     testImagePath = path.join(__dirname, 'test-image.jpg');
     fs.writeFileSync(testImagePath, 'dummy image content');
-    
+
     // Setup mocks
     geminiService.validateImage.mockImplementation(() => {});
     geminiService.processImage.mockResolvedValue({
@@ -135,6 +214,24 @@ describe('Job Flow Test', () => {
         name: 'Test Prompt'
       }
     });
+
+    promptService.getPromptById.mockResolvedValue({
+      id: 'test-prompt',
+      name: 'Test Prompt',
+      template: 'Test template',
+      requiredVariables: [],
+      supportedOutcomes: ['text', 'image']
+    });
+
+    promptService.getPrompts.mockResolvedValue([
+      {
+        id: 'test-prompt',
+        name: 'Test Prompt',
+        description: 'A test prompt',
+        requiredVariables: [],
+        supportedOutcomes: ['text', 'image']
+      }
+    ]);
   });
 
   afterAll(async () => {
@@ -144,16 +241,19 @@ describe('Job Flow Test', () => {
     }
   });
 
-  // Reset redis mock store between tests if needed, or just let it accumulate
   beforeEach(() => {
-    // Optional: Clear store
-    // mockRedisClient.store = {};
-    // mockRedisClient.sets = {};
+    // Clear mock stores between tests
+    mockRedisClient.store = {};
+    mockRedisClient.sets = {};
+    mockRedisClient.lists = {};
+    mockRedisClient.zsets = {};
+    jest.clearAllMocks();
   });
 
   test('POST /jobs should create a job with imagePath and return 201', async () => {
     const response = await request(app)
       .post('/jobs')
+      .set('x-api-key', process.env.API_KEY)
       .field('promptId', 'test-prompt')
       .field('expectedOutcome', 'text')
       .attach('image', testImagePath);
@@ -169,17 +269,13 @@ describe('Job Flow Test', () => {
     expect(jobData).toBeTruthy();
     expect(jobData.imagePath).toBeTruthy();
     expect(jobData.imagePath).toContain('uploads/');
-    
+
     // Verify the file exists on disk
     expect(fs.existsSync(jobData.imagePath)).toBe(true);
-    
-    // Cleanup uploaded file will happen in next test or manual cleanup
+
+    // Cleanup uploaded file
     if (jobData.imagePath && fs.existsSync(jobData.imagePath)) {
-        // Don't delete yet, needed for next test? 
-        // Actually, integration tests usually run independently, 
-        // but here we are simulating flow. 
-        // We can let the worker test create its own job.
-        fs.unlinkSync(jobData.imagePath);
+      fs.unlinkSync(jobData.imagePath);
     }
   });
 
@@ -187,10 +283,12 @@ describe('Job Flow Test', () => {
     // First create a job to process
     const response = await request(app)
       .post('/jobs')
+      .set('x-api-key', process.env.API_KEY)
       .field('promptId', 'test-prompt')
       .field('expectedOutcome', 'text')
-      .attach('image', testImagePath);
-      
+      .attach('image', Buffer.from('dummy image content'), 'test-image.jpg');
+
+    expect(response.status).toBe(201);
     const jobId = response.body.jobId;
 
     // Process the job manually
@@ -201,10 +299,70 @@ describe('Job Flow Test', () => {
     const jobData = await getJobById(jobId);
     expect(jobData.status).toBe('completed');
     expect(jobData.resultText).toBe('Mocked Gemini response');
-    
+
     // Cleanup the uploaded file
     if (jobData.imagePath && fs.existsSync(jobData.imagePath)) {
       fs.unlinkSync(jobData.imagePath);
     }
+  });
+
+  test('POST /jobs without image returns 400', async () => {
+    const response = await request(app)
+      .post('/jobs')
+      .set('x-api-key', process.env.API_KEY)
+      .field('promptId', 'test-prompt')
+      .field('expectedOutcome', 'text');
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('MISSING_IMAGE');
+  });
+
+  test('POST /jobs with invalid promptId returns 400', async () => {
+    promptService.getPromptById.mockResolvedValueOnce(null);
+
+    const response = await request(app)
+      .post('/jobs')
+      .set('x-api-key', process.env.API_KEY)
+      .field('promptId', 'nonexistent-prompt')
+      .field('expectedOutcome', 'text')
+      .attach('image', Buffer.from('dummy image content'), 'test-image.jpg');
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_PROMPT');
+  });
+
+  test('GET /jobs/:id returns 404 for unknown job', async () => {
+    const response = await request(app)
+      .get('/jobs/00000000-0000-0000-0000-000000000000')
+      .set('x-api-key', process.env.API_KEY);
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe('JOB_NOT_FOUND');
+  });
+
+  test('GET /prompts/show returns list of prompts', async () => {
+    const response = await request(app)
+      .get('/prompts/show')
+      .set('x-api-key', process.env.API_KEY);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('prompts');
+    expect(Array.isArray(response.body.prompts)).toBe(true);
+  });
+
+  test('Requests without API key return 401', async () => {
+    const response = await request(app)
+      .get('/jobs/123')
+      .set('x-api-key', 'wrong-key');
+
+    expect(response.status).toBe(401);
+  });
+
+  test('Health check returns 200 without API key', async () => {
+    const response = await request(app)
+      .get('/health');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('status');
   });
 });
