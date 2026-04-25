@@ -740,6 +740,19 @@ npm run test:watch
 npm run test:coverage
 ```
 
+### Test Coverage (Latest)
+
+| Metric | Coverage | Delta (from baseline) |
+|--------|----------|----------------------|
+| Statements | 88.33% | +29.97% |
+| Branches | 79.36% | +30.84% |
+| Functions | 80.37% | +23.23% |
+| Lines | 89.06% | +30.31% |
+
+- **14 test suites** | **169 tests** all passing
+- Unit tests: controllers, services, middleware, workers, Redis config, routes, validators
+- Integration tests: end-to-end job flows (text/image outcomes, retries, failures, stream errors)
+
 ### Code Style
 
 The project uses ESLint for code quality. Run linting with:
