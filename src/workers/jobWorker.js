@@ -267,4 +267,16 @@ if (require.main === module) {
   });
 }
 
-module.exports = { startWorker, shutdown, processJob };
+module.exports = {
+  startWorker,
+  shutdown,
+  processJob,
+  processJobWithGemini,
+  extFromMimeType,
+  decodeBase64Image,
+  exponentialBackoff,
+  get isShuttingDown() { return isShuttingDown; },
+  set isShuttingDown(val) { isShuttingDown = val; },
+  get currentJobId() { return currentJobId; },
+  set currentJobId(val) { currentJobId = val; },
+};

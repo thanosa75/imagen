@@ -56,7 +56,7 @@ describe('Job Controller Error Paths', () => {
   let testImagePath;
 
   beforeAll(() => {
-    testImagePath = path.join(__dirname, '..', 'test-image.jpg');
+    testImagePath = path.join(__dirname, '..', 'test-image-error.jpg');
     fs.writeFileSync(testImagePath, 'dummy image content');
 
     promptService.getPromptById.mockResolvedValue({

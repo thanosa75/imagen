@@ -191,7 +191,7 @@ describe('Job Flow Test', () => {
 
   beforeAll(async () => {
     // Create a dummy test image
-    testImagePath = path.join(__dirname, 'test-image.jpg');
+    testImagePath = path.join(__dirname, 'test-image-jobflow.jpg');
     fs.writeFileSync(testImagePath, 'dummy image content');
 
     // Setup mocks
@@ -286,7 +286,7 @@ describe('Job Flow Test', () => {
       .set('x-api-key', process.env.API_KEY)
       .field('promptId', 'test-prompt')
       .field('expectedOutcome', 'text')
-      .attach('image', Buffer.from('dummy image content'), 'test-image.jpg');
+      .attach('image', Buffer.from('dummy image content'), 'test-image-jobflow.jpg');
 
     expect(response.status).toBe(201);
     const jobId = response.body.jobId;
@@ -325,7 +325,7 @@ describe('Job Flow Test', () => {
       .set('x-api-key', process.env.API_KEY)
       .field('promptId', 'nonexistent-prompt')
       .field('expectedOutcome', 'text')
-      .attach('image', Buffer.from('dummy image content'), 'test-image.jpg');
+      .attach('image', Buffer.from('dummy image content'), 'test-image-jobflow.jpg');
 
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe('INVALID_PROMPT');
@@ -364,5 +364,153 @@ describe('Job Flow Test', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toHaveProperty('status');
+  });
+
+  // Phase 4: Extended integration flows
+  test('Worker processes image outcome job and serves result image', async () => {
+    // Ensure results directory exists
+    const resultsDir = path.join(process.cwd(), 'results');
+    if (!fs.existsSync(resultsDir)) {
+      fs.mkdirSync(resultsDir, { recursive: true });
+    }
+
+    const imageBase64 = Buffer.from('generated-image-bytes').toString('base64');
+    geminiService.processImage.mockResolvedValue({
+      success: true,
+      outcome: 'image',
+      result: { image: imageBase64, mimeType: 'image/png' },
+      metadata: { modelVersion: 'mock-model' }
+    });
+
+    const response = await request(app)
+      .post('/jobs')
+      .set('x-api-key', process.env.API_KEY)
+      .field('promptId', 'test-prompt')
+      .field('expectedOutcome', 'image')
+      .attach('image', Buffer.from('dummy image content'), 'test-image-jobflow.jpg');
+
+    expect(response.status).toBe(201);
+    const jobId = response.body.jobId;
+
+    // Process the job manually
+    const result = await processJob(jobId);
+    expect(result).toBe(true);
+
+    // Verify job status
+    const jobData = await getJobById(jobId);
+    expect(jobData.status).toBe('completed');
+    expect(jobData.resultImagePath).toBeTruthy();
+
+    // GET result image
+    const imgResponse = await request(app)
+      .get(`/jobs/${jobId}/result-image`)
+      .set('x-api-key', process.env.API_KEY);
+
+    expect(imgResponse.status).toBe(200);
+    expect(imgResponse.headers['content-type']).toBe('image/jpeg');
+    expect(imgResponse.body).toBeInstanceOf(Buffer);
+
+    // Cleanup
+    if (jobData.imagePath && fs.existsSync(jobData.imagePath)) {
+      fs.unlinkSync(jobData.imagePath);
+    }
+    if (jobData.resultImagePath && fs.existsSync(jobData.resultImagePath)) {
+      fs.unlinkSync(jobData.resultImagePath);
+    }
+  });
+
+  test('Job retries on retryable error then succeeds', async () => {
+    const { RetryableGeminiError } = require('../src/errors/GeminiErrors');
+    let callCount = 0;
+    geminiService.processImage.mockImplementation(() => {
+      callCount++;
+      if (callCount <= 2) {
+        return Promise.reject(new RetryableGeminiError('rate limit', 'RATE_LIMIT'));
+      }
+      return Promise.resolve({
+        success: true,
+        outcome: 'text',
+        result: { text: 'Success after retries' },
+        metadata: { modelVersion: 'mock-model' }
+      });
+    });
+
+    const response = await request(app)
+      .post('/jobs')
+      .set('x-api-key', process.env.API_KEY)
+      .field('promptId', 'test-prompt')
+      .field('expectedOutcome', 'text')
+      .attach('image', Buffer.from('dummy image content'), 'test-image-jobflow.jpg');
+
+    expect(response.status).toBe(201);
+    const jobId = response.body.jobId;
+
+    // First attempt fails retryable -> requeued
+    let result = await processJob(jobId);
+    expect(result).toBe(false);
+
+    let jobData = await getJobById(jobId);
+    expect(jobData.status).toBe('pending'); // requeued
+
+    // Second attempt fails retryable -> requeued
+    result = await processJob(jobId);
+    expect(result).toBe(false);
+
+    jobData = await getJobById(jobId);
+    expect(jobData.status).toBe('pending');
+
+    // Third attempt succeeds
+    result = await processJob(jobId);
+    expect(result).toBe(true);
+
+    jobData = await getJobById(jobId);
+    expect(jobData.status).toBe('completed');
+    expect(jobData.resultText).toBe('Success after retries');
+
+    // Cleanup
+    if (jobData.imagePath && fs.existsSync(jobData.imagePath)) {
+      fs.unlinkSync(jobData.imagePath);
+    }
+  });
+
+  test('Job fails on non-retryable error', async () => {
+    const { FatalGeminiError } = require('../src/errors/GeminiErrors');
+    geminiService.processImage.mockRejectedValue(
+      new FatalGeminiError('bad request', 'BAD_REQUEST')
+    );
+
+    const response = await request(app)
+      .post('/jobs')
+      .set('x-api-key', process.env.API_KEY)
+      .field('promptId', 'test-prompt')
+      .field('expectedOutcome', 'text')
+      .attach('image', Buffer.from('dummy image content'), 'test-image-jobflow.jpg');
+
+    expect(response.status).toBe(201);
+    const jobId = response.body.jobId;
+
+    const result = await processJob(jobId);
+    expect(result).toBe(false);
+
+    const jobData = await getJobById(jobId);
+    expect(jobData.status).toBe('failed');
+    expect(jobData.errorMessage).toBe('bad request');
+    expect(jobData.errorCode).toBe('BAD_REQUEST');
+
+    // Verify GET returns error details
+    const statusResponse = await request(app)
+      .get(`/jobs/${jobId}`)
+      .set('x-api-key', process.env.API_KEY);
+
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.error).toEqual({
+      message: 'bad request',
+      code: 'BAD_REQUEST'
+    });
+
+    // Cleanup
+    if (jobData.imagePath && fs.existsSync(jobData.imagePath)) {
+      fs.unlinkSync(jobData.imagePath);
+    }
   });
 });
