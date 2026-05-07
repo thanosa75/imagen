@@ -1,9 +1,35 @@
+# ============================================================
+#  Imagen — Unified Docker Compose Stack
+# ============================================================
+#
+#  Services:
+#    redis     — Job queue & state store (internal)
+#    api       — REST API (internal, no exposed port)
+#    worker    — Background job processor (internal)
+#    frontend  — React PWA + nginx reverse proxy (:8090)
+#
+#  Architecture:
+#    Browser → External nginx (SSL :443) → frontend (:8090)
+#                                              ├── /*         → SPA
+#                                              └── /health     ┐
+#                                                  /jobs/*     ├→ api:3000
+#                                                  /prompts/*  ┘
+#
+#  The backend is reachable only on the internal Docker network.
+#  The frontend nginx acts as a reverse proxy so all API calls
+#  are same-origin — no CORS, no exposed backend ports.
+#
+#  Usage:
+#    cp backend/.env.example .env
+#    # edit .env — set GEMINI_API_KEY, API_KEY
+#    docker compose up --build -d
+# ============================================================
+
 services:
+  # ── Redis ──────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: always
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -11,19 +37,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - imagen
 
+  # ── API ────────────────────────────────────────────────────
   api:
-    build: .
+    build: ./backend
     restart: always
-    ports:
-      - "3000:3000"
     env_file:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379
+      # No CORS needed in Docker — frontend nginx proxies same-origin.
+      # Set to empty to allow all (behind reverse proxy, trusted).
+      - ALLOWED_ORIGINS=
     volumes:
       - uploads:/usr/src/app/uploads
       - results:/usr/src/app/results
+      - ./backend/data:/usr/src/app/data
     depends_on:
       redis:
         condition: service_healthy
@@ -33,9 +64,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - imagen
 
+  # ── Worker ─────────────────────────────────────────────────
   worker:
-    build: .
+    build: ./backend
     restart: always
     command: node src/workers/jobWorker.js
     env_file:
@@ -45,17 +79,36 @@ services:
     volumes:
       - uploads:/usr/src/app/uploads
       - results:/usr/src/app/results
+      - ./backend/data:/usr/src/app/data
     depends_on:
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "ps aux | grep -v grep | grep 'node src/workers/jobWorker.js' || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+    networks:
+      - imagen
 
+  # ── Frontend ───────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    restart: always
+    ports:
+      # Expose port 8090 for the external nginx SSL proxy.
+      # Change to "80:80" if this is the only web-facing service.
+      - "8090:80"
+    environment:
+      # Pass through for container metadata — not used at runtime
+      # since Vite embeds env vars at build time.
+      - VITE_API_URL=
+    # No depends_on — nginx resolves api at request time (resolver 127.0.0.11)
+    networks:
+      - imagen
+
+# ── Volumes ──────────────────────────────────────────────────
 volumes:
   redis_data:
   uploads:
   results:
+
+# ── Network ──────────────────────────────────────────────────
+networks:
+  imagen:
+    driver: bridge

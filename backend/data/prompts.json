@@ -1,0 +1,205 @@
+{
+  "prompts": [
+    {
+      "id": "describe_image",
+      "name": "Image Description",
+      "description": "Provides a detailed description of an image",
+      "template": "Analyze this image and provide a {{detail_level}} description. Focus on {{focus_area}}.",
+      "supportedOutcomes": [
+        "text"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "detail_level": "detailed",
+        "focus_area": "all visual elements, composition, colors, and subjects"
+      },
+      "examples": [
+        {
+          "variables": {
+            "detail_level": "brief",
+            "focus_area": "the main subject only"
+          },
+          "description": "Quick description of the main subject"
+        }
+      ]
+    },
+    {
+      "id": "enhance_image",
+      "name": "Create an updated image with details from the existing image",
+      "description": "Provides an updated image, that is using items of the original",
+      "template": "Create a {{type_of_shot}} shot featuring an AI-generated model with fresh, youthful natural makeup in soft, dewy tones. The composition should prominently showcase {{focus_area}} as the focal point, with the model's face artfully angled to remain only partially visible, adding intrigue and emphasis to {{focus_area}}. It is **VERY IMPORTANT** to preserve the human figure of the AI model; even if it is partially off-screen or obscured by the object. Set within a clean, modern studio environment with soft, diffused lighting that balances professional elegance with a subtle playful energy. Incorporate gentle shadows and highlights to add dimension. The overall mood should feel approachable yet polished, with a color palette of neutral tones accented by warm, inviting hues. Final output as a 9:16 vertical image.",
+      "supportedOutcomes": [
+        "image"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "type_of_shot": "avant-garde, high-fashion",
+        "focus_area": "the main item of the attached image"
+      },
+      "examples": [
+        {
+          "variables": {
+            "type_of_shot": "avant-garde, high-fashion",
+            "focus_area": "the main item of the attached image"
+          },
+          "description": "Create an updated image with details from the existing image"
+        }
+      ]
+    },
+    {
+      "id": "ocr",
+      "name": "Text Extraction (OCR)",
+      "description": "Extracts all visible text from an image",
+      "template": "Extract all text visible in this image. Format the output as {{format}}. Preserve the {{layout}} of the text.",
+      "supportedOutcomes": [
+        "text"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "format": "plain text",
+        "layout": "original layout and structure"
+      },
+      "examples": [
+        {
+          "variables": {
+            "format": "JSON with text and coordinates",
+            "layout": "line-by-line structure"
+          },
+          "description": "Extract text with position information"
+        }
+      ]
+    },
+    {
+      "id": "extract_colors",
+      "name": "Color Extraction",
+      "description": "Identifies and extracts dominant colors from an image",
+      "template": "Analyze this image and identify the {{count}} most dominant colors. Provide the colors as {{format}} and include {{additional_info}}.",
+      "supportedOutcomes": [
+        "text"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "count": "5",
+        "format": "hex color codes with color names",
+        "additional_info": "the approximate percentage of each color in the image"
+      },
+      "examples": [
+        {
+          "variables": {
+            "count": "3",
+            "format": "RGB values",
+            "additional_info": "color mood and palette description"
+          },
+          "description": "Extract top 3 colors with mood analysis"
+        }
+      ]
+    },
+    {
+      "id": "object_detection",
+      "name": "Object Detection",
+      "description": "Detects and identifies objects in an image",
+      "template": "Identify all {{object_type}} in this image. For each object, provide {{details}}. {{confidence_instruction}}",
+      "supportedOutcomes": [
+        "text"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "object_type": "objects and items",
+        "details": "the name, approximate location, and size",
+        "confidence_instruction": "Include your confidence level for each detection."
+      },
+      "examples": [
+        {
+          "variables": {
+            "object_type": "people and faces",
+            "details": "count, positions, and any visible attributes",
+            "confidence_instruction": "Only include detections with high confidence."
+          },
+          "description": "Detect people and faces with high confidence"
+        }
+      ]
+    },
+    {
+      "id": "image_classification",
+      "name": "Image Classification",
+      "description": "Classifies an image into categories",
+      "template": "Classify this image into relevant categories. Consider {{aspects}} and provide {{output_format}}.",
+      "supportedOutcomes": [
+        "text"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "aspects": "subject matter, style, mood, and context",
+        "output_format": "a list of categories with confidence scores"
+      },
+      "examples": [
+        {
+          "variables": {
+            "aspects": "artistic style and genre only",
+            "output_format": "the top 3 most relevant categories"
+          },
+          "description": "Classify by artistic style"
+        }
+      ]
+    },
+    {
+      "id": "scene_understanding",
+      "name": "Scene Understanding",
+      "description": "Provides comprehensive understanding of a scene",
+      "template": "Analyze this scene and describe: {{elements}}. Provide insights about {{context}}.",
+      "supportedOutcomes": [
+        "text"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "elements": "the setting, objects, people, activities, and atmosphere",
+        "context": "the likely context, time of day, location type, and any notable details"
+      },
+      "examples": [
+        {
+          "variables": {
+            "elements": "the environment and weather conditions",
+            "context": "outdoor/indoor setting and time of day"
+          },
+          "description": "Focus on environmental context"
+        }
+      ]
+    },
+    {
+      "id": "accessibility_description",
+      "name": "Accessibility Description",
+      "description": "Creates detailed alt-text descriptions for accessibility",
+      "template": "Create an accessibility-friendly description of this image. Include {{elements}} in a {{style}} manner. Maximum length: {{max_length}}.",
+      "supportedOutcomes": [
+        "text"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {
+        "elements": "all important visual information, text, and context",
+        "style": "clear, concise, and descriptive",
+        "max_length": "250 words"
+      },
+      "examples": [
+        {
+          "variables": {
+            "elements": "essential information only",
+            "style": "brief and factual",
+            "max_length": "100 words"
+          },
+          "description": "Short alt-text for web accessibility"
+        }
+      ]
+    },
+    {
+      "id": "vinted",
+      "name": "Vinted Image Showcase",
+      "description": "Create an image, to be added to Vinted",
+      "template": "Role & Objective:\nAct as an elite commercial product photographer, art director, and AI image generation expert. I am providing you with an image of a prominent, centered object. Your objective is to seamlessly integrate this exact object into a professional, high-resolution, photorealistic lifestyle or studio environment designed to elevate its perceived value and drive sales.\nStep 1: Object Analysis & Contextualization\nIdentify the primary object in the image. Based on what the object is, determine the most flattering and realistic context to showcase its function and scale.\nExample 1: If it is jewelry (like a wedding ring), place it on a beautifully manicured woman's hand with elegant fingers, positioned elegantly to catch the light.\nExample 2: If it is an item of clothing (like a blouse), display it hanging flawlessly from a premium coat hanger or a subtle, minimalist construct that allows the drape and fabric to be perfectly visible.\nExample 3: If it is a skincare product, place it on a sleek marble vanity with subtle water droplets or botanical elements.\nExample 4: If it is a tech gadget or homeware, place it on a modern wooden desk or a clean, sunlit kitchen counter.\nStep 2: Strict Item Preservation (CRITICAL)\nYou must NOT manipulate, distort, or alter the actual item. Keep the exact dimensions, aspect ratios, colors, textures, logos, and structural details of the original object 100% intact. The buyer must receive exactly what they see.\nStep 3: Lighting, Camera, and Atmospheric Enhancements\nWhile the object must remain untouched in its physical attributes, you have full creative freedom over the environment and lighting to make the item pop:\nLighting: Apply professional studio or cinematic lighting (e.g., softbox illumination, dramatic rim lighting, or natural, diffused window light). Ensure the lighting flatters the object's materials (e.g., making metals gleam, fabrics look soft, or glass look translucent).\nCamera Settings: Render the final image as an ultra-high-resolution (8k), macro-detail product photograph.\nBackground: Use a shallow depth of field. Create a beautifully blurred, aesthetic background (bokeh effect) so the environment is recognizable but does not compete with the product. The object must remain the undisputed focal point of the image.\nOutput:\nGenerate the new image adhering strictly to these guidelines, ensuring a luxurious, commercial-grade, \"ready-for-eCommerce\" final result.",
+      "supportedOutcomes": [
+        "image"
+      ],
+      "requiredVariables": [],
+      "defaultVariables": {}
+    }
+  ]
+}
