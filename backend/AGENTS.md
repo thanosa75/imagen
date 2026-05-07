@@ -16,28 +16,32 @@
 
 ```
 imagen/
-├── src/
-│   ├── server.js              # Entry point (binds port, graceful shutdown)
-│   ├── app.js                 # Express app assembly (middleware stack, routes)
-│   ├── config/                # Redis client, logger init, Swagger spec
-│   ├── controllers/           # Request handlers (jobController.js)
-│   ├── services/              # Business logic (geminiService, promptService, queueService)
-│   ├── repositories/          # Redis data access (jobRepository.js — ALL I/O goes through here)
-│   ├── workers/               # Background job processor (jobWorker.js — runs in own Docker container)
-│   ├── middleware/            # auth, errorHandler, rateLimiter, validator, requestLogger
-│   ├── errors/                # GeminiErrors.js (RetryableGeminiError vs FatalGeminiError)
-│   └── utils/                 # pino logger singleton
-├── data/
-│   └── prompts.json           # Prompt templates (loaded at runtime by promptService)
-├── tests/
-│   ├── jobFlow.test.js        # Integration/flow tests (11 tests)
-│   └── unit/                  # All unit tests (13 files)
-├── Dockerfile
-├── docker-compose.yml         # 3 services: redis, api, worker
-└── .env.example               # Template — copy to .env
+├── docker-compose.yml         # 3 services: redis, api, worker (at repo root)
+├── frontend/                  # Frontend application (nginx proxy on :8090)
+└── backend/                   # This directory — all backend code
+    ├── src/
+    │   ├── server.js              # Entry point (binds port, graceful shutdown)
+    │   ├── app.js                 # Express app assembly (middleware stack, routes)
+    │   ├── config/                # Redis client, logger init, Swagger spec
+    │   ├── controllers/           # Request handlers (jobController.js)
+    │   ├── services/              # Business logic (geminiService, promptService, queueService)
+    │   ├── repositories/          # Redis data access (jobRepository.js — ALL I/O goes through here)
+    │   ├── workers/               # Background job processor (jobWorker.js — runs in own Docker container)
+    │   ├── middleware/            # auth, errorHandler, rateLimiter, validator, requestLogger
+    │   ├── errors/                # GeminiErrors.js (RetryableGeminiError vs FatalGeminiError)
+    │   └── utils/                 # pino logger singleton
+    ├── data/
+    │   └── prompts.json           # Prompt templates (loaded at runtime by promptService)
+    ├── tests/
+    │   ├── jobFlow.test.js        # Integration/flow tests (11 tests)
+    │   └── unit/                  # All unit tests (13 files)
+    ├── Dockerfile
+    └── .env.example               # Template — copy to .env
 ```
 
 ## Setup Commands
+
+Run these commands from the `backend/` directory:
 
 ```bash
 # Install dependencies (node_modules already present)
@@ -56,11 +60,13 @@ npm start
 
 ### Docker (full stack)
 
+Run from the repository root (where docker-compose.yml is located):
+
 ```bash
-docker compose up --build      # brings up redis, api (:3000), worker
+docker compose up --build      # brings up redis, api, worker
 ```
 
-> The API container exposes port 3000. Swagger UI at `http://localhost:3000/doc` (non-production only).
+> In Docker, the API runs on an internal port proxied via frontend nginx on port 8090. Swagger UI at `http://localhost:8090/api/doc` (non-production only).
 
 ## Architecture & Conventions
 
@@ -93,12 +99,12 @@ Every request except `/health` goes through `authMiddleware` — validates `x-ap
 The API **only** accepts job submissions and reports status. The **worker** (`src/workers/jobWorker.js`) is a separate long-running process that dequeues and processes jobs via Gemini. Both must run:
 
 ```bash
-# Terminal 1
+# Terminal 1 (from backend/ directory)
 npm start
 
-# Terminal 2
+# Terminal 2 (from backend/ directory)
 node src/workers/jobWorker.js
-# or docker compose up  (runs both + redis)
+# or docker compose up from repo root (runs both + redis)
 ```
 
 ### Gemini error classification
@@ -107,7 +113,7 @@ Errors from Gemini are typed: `RetryableGeminiError` (429/502/503/network errors
 
 ### Prompt system
 
-Templates live in `data/prompts.json`. `promptService.js` resolves `{{variable}}` placeholders with `replaceAll`. Prompts declare `requiredVariables`, `defaultVariables`, and `supportedOutcomes` (`text` or `image`).
+Templates live in `backend/data/prompts.json`. `promptService.js` resolves `{{variable}}` placeholders with `replaceAll`. Prompts declare `requiredVariables`, `defaultVariables`, and `supportedOutcomes` (`text` or `image`).
 
 ### Image generation flow
 
@@ -125,6 +131,8 @@ When `expectedOutcome=image`, the worker writes the generated image to `results/
 | GET | `/doc` | No | Swagger UI (non-production only) |
 
 ## Testing Strategy
+
+Run these commands from the `backend/` directory:
 
 ```bash
 # Run all tests

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-**imagen-frontend** — React PWA for the Imagen Gemini Image Processing API.
+**imagen/frontend** — React PWA for the Imagen Gemini Image Processing API.
 
 ## Project Overview
 
@@ -16,8 +16,7 @@
 ## Quick Start
 
 ```bash
-cd imagen-frontend
-cp .env.example .env  # VITE_API_URL defaults to http://localhost:3000
+cd frontend
 npm run dev            # starts on :5173
 ```
 
@@ -55,15 +54,15 @@ src/
 
 ```
 IDLE → PROMPT_SELECTED → VARIABLES_SET → CAMERA_READY → IMAGE_CAPTURED → SUBMITTING → POLLING → COMPLETED
-                                                                                ↓
-                                                                              FAILED
+                                                                              ↓
+                                                                            FAILED
 ```
 
 Implemented in `CapturePage.tsx` with step-based rendering.
 
 ## Common Pitfalls
 
-1. **Do NOT change the API client paths** — they were audited against actual `src/` code. See FRONTEND_PLAN.md §1.
+1. **Do NOT change the API client paths** — they were audited against actual `src/` code. See ../backend/FRONTEND_PLAN.md §1.
 
 2. **Do NOT cache job results** — The PWA intentionally does NOT maintain an image gallery. Results are ephemeral in-memory, lost on navigation. Users must save to device.
 
@@ -87,4 +86,4 @@ Test files: `tests/unit/` — template, api, settingsStore, promptStore, jobStor
 
 ## Backend Dependencies
 
-This frontend requires the **imagen** backend to have prompt CRUD endpoints. See `../imagen/FRONTEND_PLAN.md` §2 for the required backend changes. The prompt CRUD routes have been added to `../imagen/src/routes/promptRoutes.js` and the service methods to `../imagen/src/services/promptService.js`.
+This frontend requires the **imagen/backend** to have prompt CRUD endpoints. See `../backend/FRONTEND_PLAN.md` §2 for the required backend changes. The prompt CRUD routes have been added to `../backend/src/routes/promptRoutes.js` and the service methods to `../backend/src/services/promptService.js`.
