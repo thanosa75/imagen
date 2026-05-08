@@ -114,3 +114,78 @@ cd frontend && npm test
 | api      | 3000     | —        | Proxied via frontend nginx   |
 | worker   | —        | —        | No HTTP server               |
 | frontend | 80       | **8090** | Entry point for all traffic  |
+
+## App Screenshots
+
+The PWA is designed for mobile-first use. Screenshots captured at 375×667 (iPhone SE viewport).
+
+### Workflow
+
+The app guides users through a 6-step workflow:
+
+1. **Choose a prompt** — select an AI-powered image task
+2. **Capture image** — use camera or gallery upload
+3. **Processing** — the job is queued and processed by Gemini
+4. **Review result** — view the AI-generated output
+
+**Settings** — Configure your API key and test the connection:
+
+![Settings](doc/01-settings.png)
+
+**Prompt Selection** — Browse available prompts (image description, OCR, object detection, color extraction, and more):
+
+![Prompt Selection](doc/02-capture-prompts.png)
+
+**Prompt Selected** — After choosing "Image Description", the workflow advances to Step 2:
+
+![Prompt Selected](doc/03-prompt-selected.png)
+
+**Image Upload** — Upload an image from gallery or capture with camera, then processing begins:
+
+![Processing](doc/04-processing.png)
+
+**Result** — The AI-processed result with description displayed:
+
+![Result](doc/05-result.png)
+
+### Management Pages
+
+**Prompts** — View, search, and manage the prompt library:
+
+![Prompts](doc/06-prompts.png)
+
+**Jobs** — Monitor job status (all, pending, processing, completed, failed):
+
+![Jobs](doc/07-jobs.png)
+
+**Jobs — Completed** — Filter to completed jobs with their results:
+
+![Jobs Completed](doc/08-jobs-completed.png)
+
+### Available Prompts
+
+| Prompt | Type | Description |
+|--------|------|-------------|
+| Image Description | text | Provides a detailed description of an image |
+| Create Updated Image | image | Creates an updated image using original items |
+| Text Extraction (OCR) | text | Extracts all visible text from an image |
+| Color Extraction | text | Identifies and extracts dominant colors |
+| Object Detection | text | Detects and identifies objects |
+| Image Classification | text | Classifies an image into categories |
+| Scene Understanding | text | Provides comprehensive scene understanding |
+| Accessibility Description | text | Creates alt-text descriptions for accessibility |
+| Vinted Image Showcase | image | Creates a Vinted-optimized showcase image |
+
+### Generating Screenshots
+
+Screenshots are captured via Playwright in a Docker container:
+
+```bash
+cd doc
+docker build -t imagen-screenshots .
+docker run --name imagen-screenshots-tmp --add-host host.docker.internal:host-gateway imagen-screenshots
+docker cp imagen-screenshots-tmp:/work/*.png .
+docker rm -f imagen-screenshots-tmp
+```
+
+Requires Docker and the `mcr.microsoft.com/playwright/python` base image.
