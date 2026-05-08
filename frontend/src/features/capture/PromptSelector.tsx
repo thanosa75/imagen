@@ -78,7 +78,7 @@ export default function PromptSelector({
       )}
 
       {/* Prompt cards */}
-      <div className="grid gap-2 max-h-72 overflow-y-auto pr-1">
+      <div className="grid grid-cols-1 gap-2">
         {filtered.map((prompt) => {
           const selected = prompt.id === selectedPromptId;
           return (
